@@ -63,21 +63,32 @@ def main():
     if not parse_args():
         vprint("Failed to parse cmdline args.")
         return
-    vprint("Server address: {} port: {}".format(SERVER_ADDRESS, TCP_PORT))
     for i in range(0, 20):
         client_keys.append(encryption.generate_key_64())
-    initial_message = "HELO 10000 C\r\n"
+    pfile = open("recv.txt", "r")
+    data = pfile.read()
+    split_data = data.split("\n")
+    hello_msg = split_data[0].split(" ")
+    UDP_PORT = int(hello_msg[1])
+    parameters = hello_msg[2]
+    server_keys = split_data[1:-2]
+    return
+    vprint("Server address: {} port: {}".format(SERVER_ADDRESS, TCP_PORT))
     server_ip = socket.gethostbyname(SERVER_ADDRESS)
     tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     vprint("Attempting to connect to: {} port: {}".format(server_ip, TCP_PORT))
     tcp_sock.connect((server_ip, TCP_PORT))
-    tcp_sock.send(initial_message.encode("utf-8"))
+
+    initial_msg = "HELO 10000 C\r\n".encode("utf-8")
+    tcp_sock.send(initial_msg)
     for key in client_keys:
         tcp_sock.send((key + "\r\n").encode("utf-8"))
     tcp_sock.send(".\r\n".encode("utf-8"))
     recv_data = tcp_sock.recv(2048)
-    tcp_sock.close()
     print(recv_data)
+    tcp_sock.close()
+    recvfile = open("recv.txt", "w")
+    recvfile.write(recv_data.decode("utf-8"))
 
 if __name__ == "__main__":
     main()
