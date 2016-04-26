@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from sys import argv
 import socket
 import struct
@@ -43,7 +45,7 @@ def parse_args():
         except ValueError:
             print("Port must be a decimal number.")
         else:
-            if port >= 0 and port < 65536:
+            if port >= 0 and port <= 65535:
                 TCP_PORT = port
             else:
                 print("Port not in range 0-65535.")
@@ -57,28 +59,23 @@ def vprint(msg):
         pass
     
 def main():
-    global server_keys
+    global server_keys, UDP_PORT
     if not parse_args():
         vprint("Failed to parse cmdline args.")
         return
     vprint("Server address: {} port: {}".format(SERVER_ADDRESS, TCP_PORT))
     for i in range(0, 20):
         client_keys.append(encryption.generate_key_64())
-    full_message = str.encode("\r\n".join(["HELO 10000 C", "\r\n".join(client_keys), "."]))
-    deconstructed = full_message.decode("utf-8").split("\r\n")
-    server_keys = deconstructed[1:len(deconstructed)-1]
-    for key in server_keys:
-        if not encryption.verify_key(key):
-            print("Invalid encryption key")
-    UDP_PORT = int(deconstructed[0].split(" ")[1])
-    return
+    initial_message = "HELO 10000 C\r\n"
     server_ip = socket.gethostbyname(SERVER_ADDRESS)
     tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     vprint("Attempting to connect to: {} port: {}".format(server_ip, TCP_PORT))
     tcp_sock.connect((server_ip, TCP_PORT))
-    vprint("Sending: {}".format(full_message))
-    tcp_sock.send(full_message)
-    recv_data = tcp_sock.recv(1536)
+    tcp_sock.send(initial_message.encode("utf-8"))
+    for key in client_keys:
+        tcp_sock.send((key + "\r\n").encode("utf-8"))
+    tcp_sock.send(".\r\n".encode("utf-8"))
+    recv_data = tcp_sock.recv(2048)
     tcp_sock.close()
     print(recv_data)
 
