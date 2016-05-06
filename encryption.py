@@ -22,7 +22,10 @@ def decrypt(message, key):
         #print("Warning! Message length ({}) does not match key length ({}).".format(len(message), len(key)))
         pass
     for i in range(0, len(message)):
-        decrypted_list.append(chr(ord(message[i]) - ord(key[i])))
+        try:
+            decrypted_list.append(chr(ord(message[i]) - ord(key[i])))
+        except ValueError:
+            return "BADMSG"
     return "".join(decrypted_list)
 
 def verify_key(key):

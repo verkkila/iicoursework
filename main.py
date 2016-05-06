@@ -8,12 +8,13 @@ import encryption
 
 VERBOSE_MODE = False
 SERVER_ADDRESS = ""
+SERVER_IP = ""
 TCP_PORT = -1
 CLIENT_UDP_PORT = 10000
 SERVER_UDP_PORT = -1
 UDP_MSG_FORMAT = "!??HH64s"
 INITIAL_UDP_MSG = "Ekki-ekki-ekki-ekki-PTANG."
-PARAMETERS = "C"
+PARAMETERS = "CI"
 ENCODING = "latin-1"
 
 CLIENT_KEYS = []
@@ -36,10 +37,10 @@ def parse_args():
     
     if "-v" in argv or "--verbose" in argv:
         VERBOSE_MODE = True
-        print("Verbose mode enabled.")
+        vprint("Verbose mode enabled.")
         
     if len(argv) < 3:
-        print("Usage: main.py [server_address] [port] [flags]")
+        print("Usage: main.py [server_address] [port] [options]")
         return False
     else:
         SERVER_ADDRESS = argv[1]
@@ -47,6 +48,7 @@ def parse_args():
             port = int(argv[2])
         except ValueError:
             print("Port must be a decimal number.")
+            return False
         else:
             if port >= 0 and port <= 65535:
                 TCP_PORT = port
@@ -78,35 +80,43 @@ def get_UDP_message(eom, ack, message):
         out_msg = message
     return struct.pack(UDP_MSG_FORMAT, eom, ack, msg_len, remaining_data, out_msg.encode(ENCODING))
 
+def request_UDP_resend(sock, reason):
+    vprint(reason)
+    UDP_msg = get_UDP_message(False, False, "Send again.")
+    sock.sendto(UDP_msg, (SERVER_IP, SERVER_UDP_PORT))
+
 def main():
-    global SERVER_KEYS, CLIENT_UDP_PORT, SERVER_UDP_PORT, SERVER_KEY_COUNTER
+    global SERVER_IP, SERVER_KEYS, CLIENT_UDP_PORT, SERVER_UDP_PORT, SERVER_KEY_COUNTER
     if not parse_args():
         return
     for i in range(0, 20):
         CLIENT_KEYS.append(encryption.generate_key_64())
     vprint("Server address: {} port: {}".format(SERVER_ADDRESS, TCP_PORT))
-    server_ip = socket.gethostbyname(SERVER_ADDRESS)
+    SERVER_IP = socket.gethostbyname(SERVER_ADDRESS)
     #Do TCP handshake
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    vprint("(TCP) Attempting to connect to: {} port: {}".format(server_ip, TCP_PORT))
-    TCP_sock.connect((server_ip, TCP_PORT))
+    vprint("(TCP) Attempting to connect to: {} port: {}".format(SERVER_IP, TCP_PORT))
+    TCP_sock.connect((SERVER_IP, TCP_PORT))
     hello_msg = " ".join(["HELO", str(CLIENT_UDP_PORT), PARAMETERS])
     if "C" in PARAMETERS:
         TCP_msg = "\r\n".join([hello_msg, "\r\n".join(CLIENT_KEYS), ".\r\n"]).encode(ENCODING)
     else:
-        TCP_msg = hello_msg.encode("utf-8")
-    vprint("(TCP) Sending: {}".format(TCP_msg))
+        TCP_msg = hello_msg.encode(ENCODING)
+    vprint("(TCP) Sending initial message.".format(TCP_msg))
     TCP_sock.send(TCP_msg)
-    recv_hello = TCP_sock.recv(16).decode("utf-8").strip("\r\n").split(" ")
+    recv_hello = TCP_sock.recv(16).decode(ENCODING).strip("\r\n").split(" ")
     #Check encryption keys sent by the server
     if "C" in PARAMETERS:
-        keys = TCP_sock.recv(2048).decode("utf-8")
+        keys = TCP_sock.recv(2048).decode(ENCODING)
         SERVER_KEYS = keys.split("\r\n")[0:-2]
         for key in SERVER_KEYS:
             valid_keys = True
             valid_keys = encryption.verify_key(key)
         if valid_keys:
-            vprint("Verified {} keys from the server".format(len(SERVER_KEYS)))
+            vprint("Verified {} keys from the server.".format(len(SERVER_KEYS)))
+        else:
+            #TODO handle this case
+            pass
     TCP_sock.close()
     #Parse TCP message
     SERVER_UDP_PORT = int(recv_hello[1])
@@ -114,7 +124,7 @@ def main():
     if len(PARAMETERS) > 0:
         recv_params = recv_hello[2]
     if sorted(recv_params) != sorted(PARAMETERS):
-        vprint("Client and server parameters don't match")
+        vprint("Client and server parameters don't match.")
     vprint("(TCP) Received:\n\tUDP port: {}\n\tParameters: {}\n\tKeys: {}\n".format(SERVER_UDP_PORT, recv_params, len(SERVER_KEYS)))
     #Start UDP communication
     recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -128,32 +138,54 @@ def main():
         except socket.error:
             CLIENT_UDP_PORT += 1
             if CLIENT_UDP_PORT > 10100:
-                print("Error! Ran out of possible UDP ports, exiting...")
+                print("ERROR: Ran out of possible UDP ports, exiting...")
                 return
     first_UDP_msg = get_UDP_message(False, True, INITIAL_UDP_MSG)
-    vprint("(UDP) Sending to {} on port {}".format(server_ip, SERVER_UDP_PORT))
-    recv_sock.sendto(first_UDP_msg, (server_ip, SERVER_UDP_PORT))
+    vprint("(UDP) Sending to {} on port {}".format(SERVER_IP, SERVER_UDP_PORT))
+    recv_sock.sendto(first_UDP_msg, (SERVER_IP, SERVER_UDP_PORT))
     vprint("(UDP) Sent: {}\n".format(first_UDP_msg))
     while True:
         vprint("(UDP) Waiting to receive...")
-        recv_data, recv_addr = recv_sock.recvfrom(128)
-        #vprint("(UDP) Received: {}".format(recv_data))
-        EOM, ACK, msg_len, remaining_data_len, raw_msg = struct.unpack(UDP_MSG_FORMAT, recv_data)
-        if EOM:
-            print("Server: {}".format(raw_msg.decode(ENCODING)))
-            break
-        if "C" in PARAMETERS:
-            vprint("Decrypting with server key({}):{}".format(SERVER_KEY_COUNTER, SERVER_KEYS[SERVER_KEY_COUNTER]))
-            raw_msg = encryption.decrypt(raw_msg.strip(b"\x00").decode(ENCODING), SERVER_KEYS[SERVER_KEY_COUNTER])
-            SERVER_KEY_COUNTER += 1
+        recv_data, recv_info = recv_sock.recvfrom(128)
+        #Check ip and port
+        vprint("(UDP) Received: {}".format(recv_data))
+        if recv_info[0] != SERVER_IP or recv_info[1] != SERVER_UDP_PORT:
+            request_UDP_resend(recv_sock, "Server address and/or port mismatch.")
+            continue
+        try:
+            EOM, ACK, msg_len, remaining_data_len, raw_msg = struct.unpack(UDP_MSG_FORMAT, recv_data)
+        except struct.error:
+            request_UDP_resend(recv_sock, "Received invalid packet from server.")
+            continue
         else:
-            raw_msg = raw_msg.decode("utf-8")
-        print("Server: {}".format(raw_msg))
-        out_msg = answer(raw_msg)
-        print("Client: {}".format(out_msg))
-        UDP_msg = get_UDP_message(False, True, out_msg)
-        vprint("(UDP) Sending: {}\n".format(UDP_msg))
-        recv_sock.sendto(UDP_msg, (server_ip, SERVER_UDP_PORT))
+            vprint("EOM: {}\nACK: {}\nMessage length: {}\nRemaining data: {}\nRaw message: {}".format(EOM, ACK, msg_len, remaining_data_len, raw_msg))
+            if EOM:
+                print("Server: {}".format(raw_msg.decode(ENCODING)))
+                break
+            if "C" in PARAMETERS:
+                vprint("Decrypting with server key({}):{}".format(SERVER_KEY_COUNTER, SERVER_KEYS[SERVER_KEY_COUNTER]))
+                raw_msg = encryption.decrypt(raw_msg.strip(b"\x00").decode(ENCODING), SERVER_KEYS[SERVER_KEY_COUNTER])
+                if raw_msg == "BADMSG":
+                    request_UDP_resend(recv_sock, "Could not decrypt message.")
+                    continue
+                SERVER_KEY_COUNTER += 1
+            else:
+                raw_msg = raw_msg.decode(ENCODING)
+            #Compare given message length to actual message length
+            if msg_len != len(raw_msg):
+                request_UDP_resend(recv_sock, "Message length field does not match actual message length.")
+                continue
+            print("Server: {}".format(raw_msg))
+            out_msg = answer(raw_msg)
+            #Check for a valid answer
+            if out_msg == "":
+                request_UDP_resend(recv_sock, "Did not find an answer for the server's question.")
+                continue
+            print("Client: {}".format(out_msg))
+            UDP_msg = get_UDP_message(False, True, out_msg)
+            vprint("(UDP) Sending: {}\n".format(UDP_msg))
+            recv_sock.sendto(UDP_msg, (SERVER_IP, SERVER_UDP_PORT))
+
     recv_sock.close()
 
 if __name__ == "__main__":
