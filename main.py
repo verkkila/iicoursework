@@ -15,8 +15,8 @@ VERBOSE_MODE = False
 #1+1+2+2+64==70
 #Ekki-ekki-ekki-ekki-PTANG.
 
-client_keys = []
-server_keys = []
+CLIENT_KEYS = []
+SERVER_KEYS = []
 
 def print_help():
     print("Usage: main.py [server_address] [port] [flags]")
@@ -59,36 +59,33 @@ def vprint(msg):
         pass
     
 def main():
-    global server_keys, UDP_PORT
+    global SERVER_KEYS, UDP_PORT
     if not parse_args():
         vprint("Failed to parse cmdline args.")
         return
     for i in range(0, 20):
-        client_keys.append(encryption.generate_key_64())
-    pfile = open("recv.txt", "r")
-    data = pfile.read()
-    split_data = data.split("\n")
-    hello_msg = split_data[0].split(" ")
-    UDP_PORT = int(hello_msg[1])
-    parameters = hello_msg[2]
-    server_keys = split_data[1:-2]
-    return
+        CLIENT_KEYS.append(encryption.generate_key_64())
     vprint("Server address: {} port: {}".format(SERVER_ADDRESS, TCP_PORT))
     server_ip = socket.gethostbyname(SERVER_ADDRESS)
     tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     vprint("Attempting to connect to: {} port: {}".format(server_ip, TCP_PORT))
     tcp_sock.connect((server_ip, TCP_PORT))
-
     initial_msg = "HELO 10000 C\r\n".encode("utf-8")
     tcp_sock.send(initial_msg)
-    for key in client_keys:
+    for key in CLIENT_KEYS:
         tcp_sock.send((key + "\r\n").encode("utf-8"))
     tcp_sock.send(".\r\n".encode("utf-8"))
     recv_data = tcp_sock.recv(2048)
-    print(recv_data)
+    vprint(recv_data)
     tcp_sock.close()
-    recvfile = open("recv.txt", "w")
-    recvfile.write(recv_data.decode("utf-8"))
+    split_data = recv_data.decode("utf-8").split("\r\n")
+    hello_msg = split_data[0].split(" ")
+    UDP_PORT = int(hello_msg[1])
+    parameters = hello_msg[2]
+    SERVER_KEYS = split_data[1:-2]
+    vprint(UDP_PORT)
+    vprint(SERVER_KEYS)
+    vprint(len(SERVER_KEYS))
 
 if __name__ == "__main__":
     main()
