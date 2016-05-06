@@ -5,23 +5,25 @@ def generate_key_64():
     key_list = []
     for i in range(0, 64):
         key_list.append(character_set[random.randint(0, len(character_set)) - 1])
-    return ''.join(key_list)
+    return "".join(key_list)
 
 def encrypt(message, key):
     encrypted_list = []
     if not len(message) == len(key):
-        print("Warning! Message length ({}) does not match key length ({}).".format(len(message), len(key)))
+        #print("Warning! Message length ({}) does not match key length ({}).".format(len(message), len(key)))
+        pass
     for i in range(0, len(message)):
-        encrypted_list.append(chr(ord(message[i]) + int(key[i], 16)))
-    return ''.join(encrypted_list)
+        encrypted_list.append(chr(ord(message[i]) + ord(key[i])))
+    return "".join(encrypted_list)
 
 def decrypt(message, key):
     decrypted_list = []
     if not len(message) == len(key):
-        print("Warning! Message length ({}) does not match key length ({}).".format(len(message), len(key)))
+        #print("Warning! Message length ({}) does not match key length ({}).".format(len(message), len(key)))
+        pass
     for i in range(0, len(message)):
-        decrypted_list.append(chr(ord(message[i]) - int(key[i], 16)))
-    return ''.join(decrypted_list)
+        decrypted_list.append(chr(ord(message[i]) - ord(key[i])))
+    return "".join(decrypted_list)
 
 def verify_key(key):
     character_set = "0123456789ABCDEFabcdef"
