@@ -14,7 +14,8 @@ TCP_PORT = -1
 CLIENT_UDP_PORT = 10000
 SERVER_UDP_PORT = -1
 UDP_MSG_FORMAT = "!??HH64s"
-CLIENT_PARAMETERS = "CIA"
+UDP_MSG_EXTRA = "!64s"
+CLIENT_PARAMETERS = "MCIA"
 SERVER_PARAMETERS = ""
 
 NUM_KEYS = 0
@@ -130,26 +131,31 @@ def get_encryption_keys(server_response):
 
 def encrypt_msg(msg):
     global CLIENT_KEY_COUNTER
-    assert(CLIENT_KEY_COUNTER < NUM_KEYS)
     vprint("Encrypting with client key({}): {}".format(CLIENT_KEY_COUNTER, CLIENT_KEYS[CLIENT_KEY_COUNTER]))
     encrypted_msg = encryption.encrypt(msg, CLIENT_KEYS[CLIENT_KEY_COUNTER])
     CLIENT_KEY_COUNTER += 1
     return encrypted_msg
     
-def get_UDP_message(eom, ack, message):
-    msg_len = len(message)
-    remaining_data = 0
-    if "C" in CLIENT_PARAMETERS and have_client_keys():
-        out_msg = encrypt_msg(message)
-    else:
-        out_msg = message
-    return struct.pack(UDP_MSG_FORMAT, eom, ack, msg_len, remaining_data, out_msg.encode(ENCODING))
+def create_UDP_packets(eom, ack, message):
+    pieces = [message[i:i+64] for i in range(0, len(message), 64)]
+    packets = []
+    remaining_data = len(message)
+    for i in range(0, len(pieces)):
+        msg_len = len(pieces[i])
+        remaining_data -= len(pieces[i])
+        if "C" in CLIENT_PARAMETERS and have_client_keys():
+            out_msg = encrypt_msg(pieces[i])
+        else:
+            out_msg = pieces[i]
+        packets.append(struct.pack(UDP_MSG_FORMAT, eom, ack, msg_len, remaining_data, out_msg.encode(ENCODING)))
+    return packets
 
 def request_UDP_resend(sock, reason):
     vprint(reason)
-    UDP_msg = get_UDP_message(False, False, "Send again.")
+    packets = create_UDP_packets(False, False, "Send again.")
     vprint("(UDP) Requesting server to send again.\n")
-    sock.sendto(UDP_msg, (SERVER_IP, SERVER_UDP_PORT))
+    for packet in packets:
+        sock.sendto(packet, (SERVER_IP, SERVER_UDP_PORT))
 
 def main():
     global SERVER_IP, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
@@ -178,10 +184,12 @@ def main():
     TCP_handshake()
     #Start UDP communication
     vprint("(UDP) Starting UDP communication.")
-    UDP_msg_initial = get_UDP_message(False, True, "Ekki-ekki-ekki-ekki-PTANG.")
+    packets = create_UDP_packets(False, True, "Ekki-ekki-ekki-ekki-PTANG.")
     vprint("(UDP) Sending to {} on port {}".format(SERVER_IP, SERVER_UDP_PORT))
-    UDP_sock.sendto(UDP_msg_initial, (SERVER_IP, SERVER_UDP_PORT))
+    for packet in packets:
+        UDP_sock.sendto(packet, (SERVER_IP, SERVER_UDP_PORT))
     vprint("(UDP) Sent initial message.\n")
+    recvbuf = []
     while True:
         vprint("(UDP) Waiting to receive...")
         recv_data, recv_info = UDP_sock.recvfrom(128)
@@ -200,7 +208,6 @@ def main():
             break
         #Attempt to decrypt the server's message
         if "C" in CLIENT_PARAMETERS and have_server_keys():
-            assert(SERVER_KEY_COUNTER < NUM_KEYS)
             vprint("Decrypting with server key({}):{}".format(SERVER_KEY_COUNTER, SERVER_KEYS[SERVER_KEY_COUNTER]))
             content = encryption.decrypt(content_raw.strip(b"\x00").decode(ENCODING), SERVER_KEYS[SERVER_KEY_COUNTER])
             SERVER_KEY_COUNTER += 1
@@ -214,16 +221,22 @@ def main():
         if msg_len != len(content):
             request_UDP_resend(UDP_sock, "Message length field does not match actual message length.")
             continue
+        recvbuf.append(content)
+        if remaining_data_len > 0:
+            continue
         #Check for a valid answer
-        response = answer(content)
+        full_content = "".join(recvbuf)
+        response = answer(full_content)
         if response == "":
             request_UDP_resend(UDP_sock, "Did not find an answer for the server's question.")
             continue
-        print("Server: {}".format(content))
+        print("Server: {}".format(full_content))
         print("Client: {}".format(response))
-        UDP_msg = get_UDP_message(False, True, response)
-        vprint("(UDP) Sending message.\n")
-        UDP_sock.sendto(UDP_msg, (SERVER_IP, SERVER_UDP_PORT))
+        packets = create_UDP_packets(False, True, response)
+        vprint("(UDP) Sending message(s).\n")
+        for packet in packets:
+            UDP_sock.sendto(packet, (SERVER_IP, SERVER_UDP_PORT))
+        recvbuf = []
     UDP_sock.close()
 
 if __name__ == "__main__":
