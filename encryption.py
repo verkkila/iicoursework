@@ -33,7 +33,7 @@ def verify_key(key):
     if not len(key) == 64:
         return False
     for char in key:
-        if not char in character_set:
+        if char not in character_set:
             return False
     return True
 
