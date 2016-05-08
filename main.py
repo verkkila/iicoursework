@@ -15,7 +15,7 @@ CLIENT_UDP_PORT = 10000
 SERVER_UDP_PORT = -1
 UDP_MSG_FORMAT = "!??HH64s"
 UDP_MSG_EXTRA = "!64s"
-CLIENT_PARAMETERS = "MCIA"
+CLIENT_PARAMETERS = "MIA"
 SERVER_PARAMETERS = ""
 
 NUM_KEYS = 0
@@ -25,21 +25,27 @@ CLIENT_KEY_COUNTER = 0
 SERVER_KEY_COUNTER = 0
 
 def print_help():
-    print("Usage: main.py [server_address] [port] [options]")
-    print("Possible options:")
-    print("-h\t--help\t\tPrint help.")
-    print("-v\t--verbose\tPrints additional information.")
+    print("Usage: main.py [server_address] [port] [options]\n\
+Possible options:\n\
+-h\t--help\t\tPrints help.\n\
+-v\t--verbose\tPrints additional information.\n\
+-e\t--encrypt\tUse encryption when communicating over UDP.")
+
 
 def parse_args():
-    global SERVER_ADDRESS, TCP_PORT, VERBOSE_MODE
+    global SERVER_ADDRESS, TCP_PORT, VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
     
     if "-h" in argv or "--help" in argv:
         print_help()
         return False
-    
+
     if "-v" in argv or "--verbose" in argv:
         VERBOSE_MODE = True
         vprint("Verbose mode enabled.")
+
+    if "-e" in argv or "--encrypt" in argv:
+        CLIENT_PARAMETERS += "C"
+        vprint("Using encryption.")
         
     if len(argv) < 3:
         print("Usage: main.py [server_address] [port] [options]")
@@ -140,13 +146,13 @@ def create_UDP_packets(eom, ack, message):
     pieces = [message[i:i+64] for i in range(0, len(message), 64)]
     packets = []
     remaining_data = len(message)
-    for i in range(0, len(pieces)):
-        msg_len = len(pieces[i])
-        remaining_data -= len(pieces[i])
+    for piece in pieces:
+        msg_len = len(piece)
+        remaining_data -= len(piece)
         if "C" in CLIENT_PARAMETERS and have_client_keys():
-            out_msg = encrypt_msg(pieces[i])
+            out_msg = encrypt_msg(piece)
         else:
-            out_msg = pieces[i]
+            out_msg = piece
         packets.append(struct.pack(UDP_MSG_FORMAT, eom, ack, msg_len, remaining_data, out_msg.encode(ENCODING)))
     return packets
 
@@ -161,13 +167,13 @@ def main():
     global SERVER_IP, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
     if not parse_args():
         return
-    if "C" in CLIENT_PARAMETERS:
-        generate_keys(20)
     try:
         SERVER_IP = socket.gethostbyname(SERVER_ADDRESS)
     except socket.gaierror:
         print("Could not resolve server ip address.")
         return
+    if "C" in CLIENT_PARAMETERS:
+        generate_keys(20)
     vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     #Bind the first UDP port in range 10000-10100
