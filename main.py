@@ -77,7 +77,7 @@ def have_client_keys():
 def have_server_keys():
     return SERVER_KEY_COUNTER < NUM_KEYS
 
-def generate_keys(count):
+def generate_encryption_keys(count=20):
     global NUM_KEYS, CLIENT_KEYS
     NUM_KEYS = count
     for i in range(0, NUM_KEYS):
@@ -98,10 +98,10 @@ def TCP_handshake():
     #Receive response from server
     recvbuf = []
     while True:
-        recv = sock.recv(128).decode(ENCODING)
-        if recv == "":
+        recv_data = sock.recv(128).decode(ENCODING)
+        if recv_data == "":
             break
-        recvbuf.append(recv)
+        recvbuf.append(recv_data)
     server_response = "".join(recvbuf)
     vprint("(TCP) Received {} bytes from the server.".format(len(server_response)))
     get_port_and_parameters(server_response)
@@ -112,7 +112,6 @@ def TCP_handshake():
 
 def get_port_and_parameters(server_response):
     global SERVER_UDP_PORT, SERVER_PARAMETERS
-    #Get port and parameters from server's response
     server_hello = server_response.split("\r\n")[0]
     SERVER_UDP_PORT = int(server_hello.split(" ")[1])
     assert(SERVER_UDP_PORT >= 0 and SERVER_UDP_PORT <= 65535)
@@ -142,18 +141,20 @@ def encrypt_msg(msg):
     CLIENT_KEY_COUNTER += 1
     return encrypted_msg
     
-def create_UDP_packets(eom, ack, message):
-    pieces = [message[i:i+64] for i in range(0, len(message), 64)]
+def create_UDP_packets(eom, ack, content):
+    pieces = [content[i:i+64] for i in range(0, len(content), 64)]
     packets = []
-    remaining_data = len(message)
+    remaining_data_length = len(content)
     for piece in pieces:
-        msg_len = len(piece)
-        remaining_data -= len(piece)
+        content_length = len(piece)
+        remaining_data_length -= len(piece)
         if "C" in CLIENT_PARAMETERS and have_client_keys():
-            out_msg = encrypt_msg(piece)
+            content_final = encrypt_msg(piece)
         else:
-            out_msg = piece
-        packets.append(struct.pack(UDP_MSG_FORMAT, eom, ack, msg_len, remaining_data, out_msg.encode(ENCODING)))
+            content_final = piece
+        packets.append(struct.pack(UDP_MSG_FORMAT, eom, ack, content_length, remaining_data_length, content_final.encode(ENCODING)))
+    if len(packets) > 1:
+        assert("M" in CLIENT_PARAMETERS)
     return packets
 
 def request_UDP_resend(sock, reason):
@@ -173,7 +174,7 @@ def main():
         print("Could not resolve server ip address.")
         return
     if "C" in CLIENT_PARAMETERS:
-        generate_keys(20)
+        generate_encryption_keys()
     vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     #Bind the first UDP port in range 10000-10100
