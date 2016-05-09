@@ -8,7 +8,6 @@ import encryption
 
 VERBOSE_MODE = False
 ENCODING = "latin-1"
-SERVER_ADDRESS = ""
 SERVER_IP = ""
 TCP_PORT = -1
 CLIENT_UDP_PORT = 10000
@@ -33,7 +32,7 @@ Possible options:\n\
 
 
 def parse_args():
-    global SERVER_ADDRESS, TCP_PORT, VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
+    global SERVER_IP, TCP_PORT, VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
     
     if "-h" in argv or "--help" in argv:
         print_help()
@@ -51,11 +50,13 @@ def parse_args():
         print("Usage: main.py [server_address] [port] [options]")
         return False
     else:
-        SERVER_ADDRESS = argv[1]
         try:
+            address = argv[1]
+            SERVER_IP = socket.gethostbyname(address)
+            assert(SERVER_IP != "")
             port = int(argv[2])
-        except ValueError:
-            print("Port must be a decimal number.")
+        except (socket.gaierror, ValueError):
+            print("Invalid address or port.")
             return False
         else:
             if port >= 0 and port <= 65535:
@@ -168,11 +169,6 @@ def main():
     global SERVER_IP, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
     if not parse_args():
         return
-    try:
-        SERVER_IP = socket.gethostbyname(SERVER_ADDRESS)
-    except socket.gaierror:
-        print("Could not resolve server ip address.")
-        return
     if "C" in CLIENT_PARAMETERS:
         generate_encryption_keys()
     vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
@@ -233,6 +229,7 @@ def main():
             continue
         #Check for a valid answer
         full_content = "".join(recvbuf)
+        recvbuf = []
         response = answer(full_content)
         if response == "":
             request_UDP_resend(UDP_sock, "Did not find an answer for the server's question.")
@@ -243,7 +240,6 @@ def main():
         vprint("(UDP) Sending message(s).\n")
         for packet in packets:
             UDP_sock.sendto(packet, (SERVER_IP, SERVER_UDP_PORT))
-        recvbuf = []
     UDP_sock.close()
 
 if __name__ == "__main__":
