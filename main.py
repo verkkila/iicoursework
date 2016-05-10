@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
-from sys import argv
-from questions import answer
+import sys
 import socket
 import struct
 import encryption
+from questions import answer
 
 VERBOSE_MODE = False
-ENCODING = "latin-1"
+ENCODING = ""
 UDP_PACKET_FORMAT = "!??HH64s"
 
 SERVER_IP = ""
@@ -28,42 +28,44 @@ def print_help():
     print("Usage: main.py [server_address] [port] [options]\n\
 -h\t--help\t\tPrints help.\n\
 -v\t--verbose\tPrints additional information.\n\
--e\t--encrypt\tUse encryption when communicating over UDP.")
+-e\t--encrypt\tUse encryption when communicating over UDP (Python3).")
 
 
 def parse_args():
     global SERVER_IP, TCP_PORT, VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
     
-    if "-h" in argv or "--help" in argv:
+    if "-h" in sys.argv or "--help" in sys.argv:
         print_help()
         return False
 
-    if "-v" in argv or "--verbose" in argv:
+    if "-v" in sys.argv or "--verbose" in sys.argv:
         VERBOSE_MODE = True
         vprint("Verbose mode enabled.")
 
-    if "-e" in argv or "--encrypt" in argv:
-        CLIENT_PARAMETERS += "C"
-        vprint("Using encryption.")
-        
-    if len(argv) < 3:
+    if "-e" in sys.argv or "--encrypt" in sys.argv:
+        if sys.version_info[0] == 3:
+            CLIENT_PARAMETERS += "C"
+            vprint("Using encryption.")
+        else:
+            result = raw_input("Encryption not supported in Python2. Continue in plaintext? (y/n):")
+            if "n" in result:
+                print("Exiting...")
+                return False
+            
+    try:
+        addr = sys.argv[1]
+        SERVER_IP = socket.gethostbyname(addr)
+        assert(SERVER_IP != "")
+        port = int(sys.argv[2])
+    except (socket.gaierror, ValueError):
         print("Usage: main.py [server_address] [port] [options]")
         return False
     else:
-        try:
-            address = argv[1]
-            SERVER_IP = socket.gethostbyname(address)
-            assert(SERVER_IP != "")
-            port = int(argv[2])
-        except (socket.gaierror, ValueError):
-            print("Invalid address or port.")
-            return False
+        if port >= 0 and port <= 65535:
+            TCP_PORT = port
         else:
-            if port >= 0 and port <= 65535:
-                TCP_PORT = port
-            else:
-                print("Port not in range 0-65535.")
-                return False
+            print("Port not in range 0-65535.")
+            return False
     return True
 
 def vprint(msg):
@@ -72,11 +74,29 @@ def vprint(msg):
     else:
         pass
 
+def debug_print_globals():
+    print("VERBOSE_MODE: {}".format(VERBOSE_MODE))
+    print("ENCODING: {}".format(ENCODING))
+    print("UDP_PACKET_FORMAT: {}".format(UDP_PACKET_FORMAT))
+    print("SERVER_IP: {}".format(SERVER_IP))
+    print("TCP_PORT: {}".format(TCP_PORT))
+    print("CLIENT_UDP_PORT: {}".format(CLIENT_UDP_PORT))
+    print("SERVER_UDP_PORT: {}".format(SERVER_UDP_PORT))
+    print("CLIENT_PARAMETERS: {}".format(CLIENT_PARAMETERS))
+    print("SERVER_PARAMETERS: {}".format(SERVER_PARAMETERS))
+    print("NUM_KEYS: {}".format(NUM_KEYS))
+    print("CLIENT_KEY_COUNTER: {}".format(CLIENT_KEY_COUNTER))
+    print("SERVER_KEY_COUNTER: {}".format(SERVER_KEY_COUNTER))
+
+
 def have_client_keys():
     return CLIENT_KEY_COUNTER < NUM_KEYS
 
 def have_server_keys():
     return SERVER_KEY_COUNTER < NUM_KEYS
+
+def use_encryption():
+    return "C" in CLIENT_PARAMETERS
 
 def generate_encryption_keys(count=20):
     global NUM_KEYS, CLIENT_KEYS
@@ -89,7 +109,7 @@ def TCP_handshake(sock):
     sock.connect((SERVER_IP, TCP_PORT))
     #Construct HELO message
     hello_msg = " ".join(["HELO", str(CLIENT_UDP_PORT), CLIENT_PARAMETERS])
-    if "C" in CLIENT_PARAMETERS:
+    if use_encryption():
         full_msg = "\r\n".join([hello_msg, "\r\n".join(CLIENT_KEYS), ".\r\n"]).encode(ENCODING)
     else:
         full_msg = "".join([hello_msg, "\r\n"]).encode(ENCODING)
@@ -105,7 +125,7 @@ def TCP_handshake(sock):
     server_response = "".join(recvbuf)
     vprint("(TCP) Received {} bytes from the server.".format(len(server_response)))
     result = get_port_and_parameters(server_response)
-    if "C" in CLIENT_PARAMETERS:
+    if use_encryption():
         result = get_encryption_keys(server_response)
     vprint("(TCP) Received:\n\tUDP port: {}\n\tParameters: {} (expected {})\n\tKeys: {} (expected {})".format(SERVER_UDP_PORT, SERVER_PARAMETERS, CLIENT_PARAMETERS, len(SERVER_KEYS), NUM_KEYS))
     return result
@@ -152,7 +172,7 @@ def create_UDP_packets(eom, ack, content):
     for piece in pieces:
         content_length = len(piece)
         remaining_data_length -= len(piece)
-        if "C" in CLIENT_PARAMETERS and have_client_keys():
+        if use_encryption() and have_client_keys():
             content_final = encrypt_msg(piece)
         else:
             content_final = piece
@@ -173,11 +193,13 @@ def request_UDP_resend(sock, reason):
     send_UDP_packets(sock, packets)
 
 def main():
-    global SERVER_IP, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
+    global ENCODING, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
     if not parse_args():
         return
-    if "C" in CLIENT_PARAMETERS:
+    ENCODING = sys.getdefaultencoding()
+    if use_encryption():
         generate_encryption_keys()
+        ENCODING = "latin-1"
     vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     #Bind the first UDP port in range 10000-10100
@@ -192,8 +214,8 @@ def main():
                 print("(UDP) Ran out of possible UDP sockets to bind, exiting...")
                 return
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    while not TCP_handshake(TCP_sock):
-        pass
+    if not TCP_handshake(TCP_sock):
+        return
     #Start UDP
     vprint("(UDP) Starting UDP communication.")
     packets = create_UDP_packets(False, True, "Ekki-ekki-ekki-ekki-PTANG.")
@@ -203,14 +225,15 @@ def main():
     recvbuf = []
     while True:
         vprint("(UDP) Waiting to receive...")
-        recv_data, recv_info = UDP_sock.recvfrom(128)
+        recv_data, conn_info = UDP_sock.recvfrom(128)
         #Check ip and port
-        if recv_info[0] != SERVER_IP or recv_info[1] != SERVER_UDP_PORT:
+        if conn_info[0] != SERVER_IP or conn_info[1] != SERVER_UDP_PORT:
             request_UDP_resend(UDP_sock, "Server address and/or port mismatch.")
             continue
         try:
             EOM, ACK, content_length, remaining_data_length, content_raw = struct.unpack(UDP_PACKET_FORMAT, recv_data)
         except struct.error:
+            SERVER_KEY_COUNTER += 1
             request_UDP_resend(UDP_sock, "Received invalid packet from server.")
             continue
         vprint("(UDP) Received:\n\tEOM: {}\n\tACK: {}\n\tMessage length: {}\n\tRemaining data: {}\n\tRaw content: {}".format(EOM, ACK, content_length, remaining_data_length, content_raw))
@@ -218,7 +241,7 @@ def main():
             print("Server: {}".format(content_raw.decode(ENCODING)))
             break
         #Attempt to decrypt the server's message
-        if "C" in CLIENT_PARAMETERS and have_server_keys():
+        if use_encryption() and have_server_keys():
             vprint("Decrypting with server key({}):{}".format(SERVER_KEY_COUNTER, SERVER_KEYS[SERVER_KEY_COUNTER]))
             content = encryption.decrypt(content_raw.strip(b"\x00").decode(ENCODING), SERVER_KEYS[SERVER_KEY_COUNTER])
             SERVER_KEY_COUNTER += 1
@@ -246,7 +269,6 @@ def main():
         print("Client: {}".format(response))
         packets = create_UDP_packets(False, True, response)
         send_UDP_packets(UDP_sock, packets)
-    TCP_sock.shutdown(socket.SHUT_RDWR)
     TCP_sock.close()
     UDP_sock.close()
 
