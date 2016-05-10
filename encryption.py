@@ -25,7 +25,6 @@ def decrypt(message, key):
         try:
             decrypted_list.append(chr(ord(message[i]) - ord(key[i])))
         except ValueError:
-            print("Failed to decrypt message.")
             return "BADMSG"
     return "".join(decrypted_list)
 
