@@ -7,6 +7,7 @@ import encryption
 from questions import answer
 
 VERBOSE_MODE = False
+PROXY_MODE = False
 ENCODING = ""
 UDP_PACKET_FORMAT = "!??HH64s"
 
@@ -28,12 +29,12 @@ def print_help():
     print("Usage: main.py [server_address] [port] [options]\n\
 -h\t--help\t\tPrints help.\n\
 -v\t--verbose\tPrints additional information.\n\
--e\t--encrypt\tUse encryption when communicating over UDP (Python3).")
+-e\t--encrypt\tUse encryption when communicating over UDP (Python3).\n\
+-p\t--proxy\tStarts the program in proxy mode.")
 
 
-def parse_args():
-    global SERVER_IP, TCP_PORT, VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
-    
+def parse_options():
+    global VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
     if "-h" in sys.argv or "--help" in sys.argv:
         print_help()
         return False
@@ -41,6 +42,11 @@ def parse_args():
     if "-v" in sys.argv or "--verbose" in sys.argv:
         VERBOSE_MODE = True
         vprint("Verbose mode enabled.")
+
+    if "-p" in sys.argv or "--proxy" in sys.argv:
+        PROXY_MODE = True
+        vprint("Starting as a proxy server.")
+        return True
 
     if "-e" in sys.argv or "--encrypt" in sys.argv:
         if sys.version_info[0] == 3:
@@ -52,12 +58,16 @@ def parse_args():
                 print("Exiting...")
                 return False
             
+def parse_args():
+    global SERVER_IP, TCP_PORT,
+    if not parse_options():
+        return False
     try:
         addr = sys.argv[1]
         SERVER_IP = socket.gethostbyname(addr)
         assert(SERVER_IP != "")
         port = int(sys.argv[2])
-    except (socket.gaierror, ValueError):
+    except (socket.gaierror, ValueError, IndexError):
         print("Usage: main.py [server_address] [port] [options]")
         return False
     else:
@@ -197,6 +207,10 @@ def main():
     if not parse_args():
         return
     ENCODING = sys.getdefaultencoding()
+    if PROXY_MODE:
+        proxy.init(VERBOSE_MODE, SERVER_IP, TCP_PORT)
+        proxy.start()
+        return
     if use_encryption():
         generate_encryption_keys()
         ENCODING = "latin-1"
