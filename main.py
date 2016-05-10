@@ -57,9 +57,10 @@ def parse_options():
             if "n" in result:
                 print("Exiting...")
                 return False
+    return True
             
 def parse_args():
-    global SERVER_IP, TCP_PORT,
+    global SERVER_IP, TCP_PORT
     if not parse_options():
         return False
     try:
