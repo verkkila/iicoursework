@@ -12,10 +12,10 @@ UDP_PACKET_FORMAT = "!??HH64s"
 
 SERVER_IP = ""
 TCP_PORT = -1
-CLIENT_UDP_PORT = 10000
+CLIENT_UDP_PORT = 10010
 SERVER_UDP_PORT = -1
 
-CLIENT_PARAMETERS = "AIM"
+CLIENT_PARAMETERS = ""
 SERVER_PARAMETERS = ""
 
 NUM_KEYS = 0
@@ -114,7 +114,7 @@ def TCP_handshake(sock):
     else:
         full_msg = "".join([hello_msg, "\r\n"]).encode(ENCODING)
     vprint("(TCP) Sending initial message.")
-    sock.send(full_msg)
+    sock.sendall(full_msg)
     #Receive response from server
     recvbuf = []
     while True:
