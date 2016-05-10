@@ -13,10 +13,10 @@ UDP_PACKET_FORMAT = "!??HH64s"
 
 SERVER_IP = ""
 TCP_PORT = -1
-CLIENT_UDP_PORT = 10010
+CLIENT_UDP_PORT = 10000
 SERVER_UDP_PORT = -1
 
-CLIENT_PARAMETERS = ""
+CLIENT_PARAMETERS = "MIA"
 SERVER_PARAMETERS = ""
 
 NUM_KEYS = 0
@@ -143,13 +143,13 @@ def TCP_handshake(sock):
 def get_port_and_parameters(server_response):
     global SERVER_UDP_PORT, SERVER_PARAMETERS
     server_hello = server_response.split("\r\n")[0]
-    SERVER_UDP_PORT = int(server_hello.split(" ")[1])
-    assert(SERVER_UDP_PORT >= 0 and SERVER_UDP_PORT <= 65535)
     if CLIENT_PARAMETERS != "": 
         try:
+            SERVER_UDP_PORT = int(server_hello.split(" ")[1])
+            assert(SERVER_UDP_PORT >= 0 and SERVER_UDP_PORT <= 65535)
             SERVER_PARAMETERS = server_hello.split(" ")[2]
-        except IndexError:
-            vprint("Failed to parse server parameters.")
+        except (IndexError, ValueError):
+            vprint("Failed to parse server port or parameters.")
             return False
     if sorted(SERVER_PARAMETERS) != sorted(CLIENT_PARAMETERS):
         vprint("Client and server parameters don't match.")
@@ -159,6 +159,7 @@ def get_port_and_parameters(server_response):
 def get_encryption_keys(server_response):
     global SERVER_KEYS
     temp_keys = server_response.rstrip("\r\n").split("\r\n")[1:]
+    print(temp_keys)
     assert(temp_keys[NUM_KEYS] == ".")
     SERVER_KEYS = temp_keys[:-1]
     assert(len(SERVER_KEYS) == NUM_KEYS)
