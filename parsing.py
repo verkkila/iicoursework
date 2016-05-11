@@ -50,4 +50,4 @@ def get_encryption_keys(message):
 def replace_port(message, port):
     split = message.split(" ")
     split[1] = str(port)
-    return "".join(split)
+    return " ".join(split)

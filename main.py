@@ -165,7 +165,7 @@ def main():
         ENCODING = "latin-1"
     vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    bind_socket(UDP_sock, 10000, 10100)
+    CLIENT_UDP_PORT = bind_socket(UDP_sock, 10000, 10100)
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     TCP_handshake(TCP_sock)
     TCP_sock.shutdown(socket.SHUT_RDWR)

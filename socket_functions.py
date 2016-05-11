@@ -1,5 +1,6 @@
 import socket
 BUF_SIZE = 128
+ENCODING = "utf-8"
 
 def recv_all(conn):
     header = conn.recv(32, socket.MSG_PEEK).decode(ENCODING)

@@ -57,9 +57,9 @@ def handle_TCP_connection(conn, addr):
     recv_client = recv_all(conn)
     client_helo = recv_client.split("\r\n")[0]
     vprint("(TCP) 1. HELO Client --> Proxy: {}".format(client_helo))
-    CLIENT_UDP_PORT = get_port(recv_client)
+    CLIENT_UDP_PORT = parsing.get_port(recv_client)
     assert(CLIENT_UDP_PORT != -1)
-    cl_TCP_msg_MOD = replace_port(recv_client, PROXY_UDP_PORT).encode(ENCODING)      
+    cl_TCP_msg_MOD = parsing.replace_port(recv_client, PROXY_UDP_PORT).encode(ENCODING)      
     cl_HELO_MOD = cl_TCP_msg_MOD.decode(ENCODING).split("\r\n")[0]
     #BEGIN server
     server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -69,11 +69,11 @@ def handle_TCP_connection(conn, addr):
     recv_server = recv_all(server_conn)
     server_helo = recv_server.split("\r\n")[0]
     vprint("(TCP) 3. HELO Server --> Proxy: {}".format(server_helo))
-    SERVER_UDP_PORT = get_port(recv_server)
+    SERVER_UDP_PORT = parsing.get_port(recv_server)
     server_conn.close()
     #END server
     assert(SERVER_UDP_PORT != -1)
-    sv_TCP_msg_MOD = replace_port(recv_server, PROXY_UDP_PORT).encode(ENCODING)
+    sv_TCP_msg_MOD = parsing.replace_port(recv_server, PROXY_UDP_PORT).encode(ENCODING)
     sv_HELO_MOD = sv_TCP_msg_MOD.decode(ENCODING).split("\r\n")[0]
     vprint("(TCP) 4. HELO Proxy --> Client: {}".format(sv_HELO_MOD))
     conn.sendall(sv_TCP_msg_MOD)
@@ -84,6 +84,7 @@ def forward_UDP_packets(sock):
     while not EOM:
         vprint("(UDP) Waiting to receive...")
         recv_data, conn_info = sock.recvfrom(128)
+        print(recv_data)
         packet_length = len(recv_data)
         if recv_data[0] != 0:
             print("(UDP) Received EOM.")
@@ -102,8 +103,8 @@ def forward_UDP_packets(sock):
 def start():
     global SERVER_IP, SERVER_TCP_PORT, PROXY_TCP_PORT, PROXY_UDP_PORT
     check_version()
-    SERVER_IP, SERVER_TCP_PORT = parsing.parse_ip_and_port(sys.argv)
-    if not set_config(parsing.parse_options(sys.argv)):
+    SERVER_IP, SERVER_TCP_PORT = parsing.parse_ip_and_port()
+    if not set_config(parsing.parse_options()):
         return
     print("(TCP) Server is: {}".format((SERVER_IP, SERVER_TCP_PORT)))
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
