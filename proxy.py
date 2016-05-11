@@ -28,7 +28,7 @@ def vprint(msg):
     else:
         pass
 
-def bind_socket(sock, port_start=10000, port_end=10000):
+def bind_socket(sock, current_port=10000, last_port=10099):
     socktype = "socktype"
     if sock.type == 1:
         socktype = "TCP"
@@ -36,12 +36,12 @@ def bind_socket(sock, port_start=10000, port_end=10000):
         socktype = "UDP"
     while True:
         try:
-            sock.bind(("", port_start))
-            vprint("Bound {} socket on port {}".format(socktype, port_start))
-            return port_start
+            sock.bind(("", current_port))
+            vprint("Bound {} socket on port {}".format(socktype, current_port))
+            return current_port
         except socket.error:
-            port_start += 1
-            if port_start > port_end:
+            current_port += 1
+            if current_port > last_port:
                 print("Failed to bind {} socket".format(socktype))
 
 def replace_port(message, port):
@@ -68,10 +68,15 @@ def get_parameters(message):
         return ""
     return params
 
-def recv_all(conn, end_marker="\r\n"):
+def recv_all(conn):
+    header = conn.recv(32, socket.MSG_PEEK).decode(ENCODING)
+    helo = header.split("\r\n")[0]
+    end_marker = "\r\n"
+    if "C" in helo:
+        end_marker = "."
     recv_buf = []
     while True:
-        recv_data = conn.recv(64).decode(ENCODING)
+        recv_data = conn.recv(128).decode(ENCODING)
         recv_buf.append(recv_data)
         if end_marker in recv_data:
             break
@@ -81,57 +86,54 @@ def handle_TCP_connection(conn, addr):
     global CLIENT_IP, CLIENT_UDP_PORT, SERVER_UDP_PORT
     CLIENT_IP = addr[0]
     print("(TCP) Received connection from: {}".format(addr))
-    recv_data = conn.recv(32).decode(ENCODING)
-    client_helo = recv_data.split("\r\n")[0]
-    vprint("(TCP) 1. HELO C->P: {}".format(client_helo))
-    remaining_data = ""
-    end_marker = "\r\n"
-    if "C" in client_helo:
-        end_marker = "."
-        remaining_data = recv_all(conn, end_marker)
-    full_recv = "".join([recv_data, remaining_data])
-    client_msg = full_recv
-    CLIENT_UDP_PORT = get_port(client_msg)
+    recv_client = recv_all(conn)
+    client_helo = recv_client.split("\r\n")[0]
+    vprint("(TCP) 1. HELO Client --> Proxy: {}".format(client_helo))
+    CLIENT_UDP_PORT = get_port(recv_client)
     assert(CLIENT_UDP_PORT != -1)
-    mod_client_msg = replace_port(client_msg, PROXY_UDP_PORT).encode(ENCODING)      
-    mod_helo_cl = mod_client_msg.decode(ENCODING).split("\r\n")[0]
+    cl_TCP_msg_MOD = replace_port(recv_client, PROXY_UDP_PORT).encode(ENCODING)      
+    cl_HELO_MOD = cl_TCP_msg_MOD.decode(ENCODING).split("\r\n")[0]
+    #BEGIN server
     server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_conn.connect((SERVER_IP, SERVER_TCP_PORT))
-    vprint("(TCP) 2. HELO P->S: {}".format(mod_helo_cl))
-    server_conn.sendall(mod_client_msg)
-    server_response = recv_all(server_conn, end_marker)
-    server_helo = server_response.split("\r\n")[0]
-    vprint("(TCP) 3. HELO S->P: {}".format(server_helo))
+    vprint("(TCP) 2. HELO Proxy --> Server: {}".format(cl_HELO_MOD))
+    server_conn.sendall(cl_TCP_msg_MOD)
+    recv_server = recv_all(server_conn)
+    server_helo = recv_server.split("\r\n")[0]
+    vprint("(TCP) 3. HELO Server --> Proxy: {}".format(server_helo))
+    SERVER_UDP_PORT = get_port(recv_server)
     server_conn.close()
-    SERVER_UDP_PORT = get_port(server_response)
+    #END server
     assert(SERVER_UDP_PORT != -1)
-    mod_server_response = replace_port(server_response, PROXY_UDP_PORT).encode(ENCODING)
-    mod_helo_sv = mod_server_response.decode(ENCODING).split("\r\n")[0]
-    vprint("(TCP) 4. HELO P->C: {}".format(mod_helo_sv))
-    conn.sendall(mod_server_response)
+    sv_TCP_msg_MOD = replace_port(recv_server, PROXY_UDP_PORT).encode(ENCODING)
+    sv_HELO_MOD = sv_TCP_msg_MOD.decode(ENCODING).split("\r\n")[0]
+    vprint("(TCP) 4. HELO Proxy --> Client: {}".format(sv_HELO_MOD))
+    conn.sendall(sv_TCP_msg_MOD)
         
 def forward_UDP_packets(sock):
     EOM = False
+    print("(UDP) Starting UDP packet forwarding.")
     while not EOM:
-        print("(UDP) Waiting to receive...")
+        vprint("(UDP) Waiting to receive...")
         recv_data, conn_info = sock.recvfrom(128)
         packet_length = len(recv_data)
         if recv_data[0] != 0:
             print("(UDP) Received EOM.")
             EOM = True
         if conn_info[0] == CLIENT_IP:
-            vprint("(UDP) Received {} bytes from: {}".format(packet_length, CLIENT_IP))
-            vprint("(UDP) Forwarding {} bytes to: {}".format(packet_length, SERVER_IP))
+            vprint("(UDP) Received {} bytes from (client): {}".format(packet_length, CLIENT_IP))
+            vprint("(UDP) Forwarding {} bytes to (server): {}".format(packet_length, SERVER_IP))
             sock.sendto(recv_data, (SERVER_IP, SERVER_UDP_PORT))
         elif conn_info[0] == SERVER_IP:
-            vprint("(UDP) Received {} bytes from: {}".format(packet_length, CLIENT_IP))
-            print("(UDP) Forwarding {} bytes to: {}".format(packet_length, SERVER_IP))
+            vprint("(UDP) Received {} bytes from (server): {}".format(packet_length, SERVER_IP))
+            vprint("(UDP) Forwarding {} bytes to (client): {}".format(packet_length, CLIENT_IP))
             sock.sendto(recv_data, (CLIENT_IP, CLIENT_UDP_PORT))
         else:
             vprint("(UDP) Received {} bytes from unknown: {}".format(packet_length, conn_info[0]))
 
 def start():
     global PROXY_TCP_PORT, PROXY_UDP_PORT
+    print("(TCP) Server is: {}".format((SERVER_IP, SERVER_TCP_PORT)))
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     PROXY_TCP_PORT = bind_socket(TCP_sock)
@@ -142,8 +144,9 @@ def start():
         print("(TCP) Listening for connections.")
         connection, address = TCP_sock.accept()
         handle_TCP_connection(connection, address)
-        connection.close()
+        connection.shutdown(socket.SHUT_RDWR)
         forward_UDP_packets(UDP_sock)
+        connection.close()
     TCP_sock.close()
     UDP_sock.close()
 

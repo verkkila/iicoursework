@@ -4,6 +4,7 @@ import sys
 import socket
 import struct
 import encryption
+import proxy
 from questions import answer
 
 VERBOSE_MODE = False
@@ -160,7 +161,6 @@ def get_port_and_parameters(server_response):
 def get_encryption_keys(server_response):
     global SERVER_KEYS
     temp_keys = server_response.rstrip("\r\n").split("\r\n")[1:]
-    print(temp_keys)
     assert(temp_keys[NUM_KEYS] == ".")
     SERVER_KEYS = temp_keys[:-1]
     assert(len(SERVER_KEYS) == NUM_KEYS)
@@ -210,7 +210,7 @@ def main():
         return
     ENCODING = sys.getdefaultencoding()
     if PROXY_MODE:
-        proxy.init(VERBOSE_MODE, SERVER_IP, TCP_PORT)
+        proxy.init(VERBOSE_MODE, ENCODING, SERVER_IP, TCP_PORT)
         proxy.start()
         return
     if use_encryption():
@@ -218,7 +218,7 @@ def main():
         ENCODING = "latin-1"
     vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    #Bind the first UDP port in range 10000-10100
+    #Bind UDP port
     while True:
         try:
             UDP_sock.bind(("", CLIENT_UDP_PORT))
