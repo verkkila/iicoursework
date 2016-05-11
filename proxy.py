@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 import socket
 import sys
+import parsing
+from socket_functions import bind_socket, recv_all
 
 VERBOSE_MODE = False
 ENCODING = "utf-8"
@@ -15,6 +17,20 @@ SERVER_IP = ""
 SERVER_TCP_PORT = -1
 SERVER_UDP_PORT = -1
 
+def print_help():
+    print("Usage: proxy.py [server_address] [port] [options]\n\
+-h\t--help\tPrint help.\n\
+-v\t--verbose\tPrints additional information.\n")
+
+def set_config(argstring):
+    global VERBOSE_MODE
+    if "H" in argstring:
+        print_help()
+        return False
+    if "V" in argstring:
+        VERBOSE_MODE = True
+    return True
+
 def init(verbose, encoding, server_ip, tcp_port):
     global VERBOSE_MODE, ENCODING, SERVER_IP, SERVER_TCP_PORT
     VERBOSE_MODE = verbose
@@ -28,59 +44,11 @@ def vprint(msg):
     else:
         pass
 
-def bind_socket(sock, current_port=10000, last_port=10099):
-    socktype = "socktype"
-    if sock.type == 1:
-        socktype = "TCP"
-    elif sock.type == 2:
-        socktype = "UDP"
-    while True:
-        try:
-            sock.bind(("", current_port))
-            vprint("Bound {} socket on port {}".format(socktype, current_port))
-            return current_port
-        except socket.error:
-            current_port += 1
-            if current_port > last_port:
-                print("Failed to bind {} socket".format(socktype))
-
-def replace_port(message, port):
-    msg_split = message.split(" ")
-    msg_split[1] = str(port)
-    return " ".join(msg_split)
-
-def get_port(message):
-    split_message = message.split(" ")
-    try:
-        port = int(split_message[1])
-    except (ValueError, IndexError):
-        print("Could not find port from message: {}".format(message))
-        return -1
-    return port
-
-def get_parameters(message):
-    split_message = message.split(" ")
-    try:
-        params = split_message[2]
-        assert(sorted(params) in "ACIM")
-    except IndexError:
-        print("Parameters not found.")
-        return ""
-    return params
-
-def recv_all(conn):
-    header = conn.recv(32, socket.MSG_PEEK).decode(ENCODING)
-    helo = header.split("\r\n")[0]
-    end_marker = "\r\n"
-    if "C" in helo:
-        end_marker = "."
-    recv_buf = []
-    while True:
-        recv_data = conn.recv(128).decode(ENCODING)
-        recv_buf.append(recv_data)
-        if end_marker in recv_data:
-            break
-    return "".join(recv_buf)
+def check_version():
+    major = sys.version_info[0]
+    if major < 3:
+        print("Python2 is not supported")
+        sys.exit()
 
 def handle_TCP_connection(conn, addr):
     global CLIENT_IP, CLIENT_UDP_PORT, SERVER_UDP_PORT
@@ -132,7 +100,11 @@ def forward_UDP_packets(sock):
             vprint("(UDP) Received {} bytes from unknown: {}".format(packet_length, conn_info[0]))
 
 def start():
-    global PROXY_TCP_PORT, PROXY_UDP_PORT
+    global SERVER_IP, SERVER_TCP_PORT, PROXY_TCP_PORT, PROXY_UDP_PORT
+    check_version()
+    SERVER_IP, SERVER_TCP_PORT = parsing.parse_ip_and_port(sys.argv)
+    if not set_config(parsing.parse_options(sys.argv)):
+        return
     print("(TCP) Server is: {}".format((SERVER_IP, SERVER_TCP_PORT)))
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -150,39 +122,5 @@ def start():
     TCP_sock.close()
     UDP_sock.close()
 
-def print_help():
-    print("Usage: proxy.py [server_address] [port] [options]\n\
--h\t--help\tPrint help.\n\
--v\t--verbose\tPrints additional information.\n")
-
-def parse_args():
-    global VERBOSE_MODE, SERVER_IP, SERVER_TCP_PORT
-
-    if "-h" in sys.argv or "--help" in sys.argv:
-        print_help()
-        return False
-
-    if "-v" in sys.argv or "--verbose" in sys.argv:
-        VERBOSE_MODE = True
-        vprint("Verbose mode enabled.")
-
-    try:
-        addr = sys.argv[1]
-        SERVER_IP = socket.gethostbyname(addr)
-        assert(SERVER_IP != "")
-        port = int(sys.argv[2])
-    except (socket.gaierror, ValueError, IndexError):
-        print("Usage: proxy.py [server_address] [port] [options]")
-        return False
-    else:
-        if port >= 0 and port <= 65535:
-            SERVER_TCP_PORT = port
-        else:
-            print("Port not in range 0-65535.")
-            return False
-    return True  
-
 if __name__ == "__main__":
-    if parse_args():
-        start()
-    
+    start()

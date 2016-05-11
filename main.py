@@ -3,8 +3,10 @@
 import sys
 import socket
 import struct
+import parsing
 import encryption
 import proxy
+from socket_functions import bind_socket
 from questions import answer
 
 VERBOSE_MODE = False
@@ -33,51 +35,29 @@ def print_help():
 -e\t--encrypt\tUse encryption when communicating over UDP (Python3).\n\
 -p\t--proxy\tStarts the program in proxy mode.")
 
-
-def parse_options():
+def set_config(argstring):
     global VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
-    if "-h" in sys.argv or "--help" in sys.argv:
+    if "H" in argstring:
         print_help()
         return False
 
-    if "-v" in sys.argv or "--verbose" in sys.argv:
+    if "V" in argstring:
         VERBOSE_MODE = True
         vprint("Verbose mode enabled.")
 
-    if "-p" in sys.argv or "--proxy" in sys.argv:
+    if "P" in argstring:
         PROXY_MODE = True
-        vprint("Starting as a proxy server.")
         return True
 
-    if "-e" in sys.argv or "--encrypt" in sys.argv:
+    if "E" in argstring:
         if sys.version_info[0] == 3:
             CLIENT_PARAMETERS += "C"
-            vprint("Using encryption.")
+            vprint("Using encryption")
         else:
-            result = raw_input("Encryption not supported in Python2. Continue in plaintext? (y/n):")
+            result = raw_input("Encryption is not supported in Python2. Continue in plaintext? (y/n):")
             if "n" in result:
                 print("Exiting...")
                 return False
-    return True
-            
-def parse_args():
-    global SERVER_IP, TCP_PORT
-    if not parse_options():
-        return False
-    try:
-        addr = sys.argv[1]
-        SERVER_IP = socket.gethostbyname(addr)
-        assert(SERVER_IP != "")
-        port = int(sys.argv[2])
-    except (socket.gaierror, ValueError, IndexError):
-        print("Usage: main.py [server_address] [port] [options]")
-        return False
-    else:
-        if port >= 0 and port <= 65535:
-            TCP_PORT = port
-        else:
-            print("Port not in range 0-65535.")
-            return False
     return True
 
 def vprint(msg):
@@ -85,21 +65,6 @@ def vprint(msg):
         print(msg)
     else:
         pass
-
-def debug_print_globals():
-    print("VERBOSE_MODE: {}".format(VERBOSE_MODE))
-    print("ENCODING: {}".format(ENCODING))
-    print("UDP_PACKET_FORMAT: {}".format(UDP_PACKET_FORMAT))
-    print("SERVER_IP: {}".format(SERVER_IP))
-    print("TCP_PORT: {}".format(TCP_PORT))
-    print("CLIENT_UDP_PORT: {}".format(CLIENT_UDP_PORT))
-    print("SERVER_UDP_PORT: {}".format(SERVER_UDP_PORT))
-    print("CLIENT_PARAMETERS: {}".format(CLIENT_PARAMETERS))
-    print("SERVER_PARAMETERS: {}".format(SERVER_PARAMETERS))
-    print("NUM_KEYS: {}".format(NUM_KEYS))
-    print("CLIENT_KEY_COUNTER: {}".format(CLIENT_KEY_COUNTER))
-    print("SERVER_KEY_COUNTER: {}".format(SERVER_KEY_COUNTER))
-
 
 def have_client_keys():
     return CLIENT_KEY_COUNTER < NUM_KEYS
@@ -117,6 +82,7 @@ def generate_encryption_keys(count=20):
         CLIENT_KEYS.append(encryption.generate_key_64())
 
 def TCP_handshake(sock):
+    global SERVER_UDP_PORT, SERVER_PARAMETERS, SERVER_KEYS
     vprint("(TCP) Attempting to connect to: {} port: {}".format(SERVER_IP, TCP_PORT))
     sock.connect((SERVER_IP, TCP_PORT))
     #Construct HELO message
@@ -136,38 +102,15 @@ def TCP_handshake(sock):
         recvbuf.append(recv_data)
     server_response = "".join(recvbuf)
     vprint("(TCP) Received {} bytes from the server.".format(len(server_response)))
-    result = get_port_and_parameters(server_response)
+    SERVER_UDP_PORT = parsing.get_port(server_response)
+    SERVER_PARAMETERS = parsing.get_parameters(server_response)
     if use_encryption():
-        result = get_encryption_keys(server_response)
+        SERVER_KEYS = parsing.get_encryption_keys(server_response)
+        for key in SERVER_KEYS:
+            if not encryption.verify_key(key):
+                print("Received bad encryption key: {}".format(key))
+                return False
     vprint("(TCP) Received:\n\tUDP port: {}\n\tParameters: {} (expected {})\n\tKeys: {} (expected {})".format(SERVER_UDP_PORT, SERVER_PARAMETERS, CLIENT_PARAMETERS, len(SERVER_KEYS), NUM_KEYS))
-    return result
-
-def get_port_and_parameters(server_response):
-    global SERVER_UDP_PORT, SERVER_PARAMETERS
-    server_hello = server_response.split("\r\n")[0]
-    if CLIENT_PARAMETERS != "": 
-        try:
-            SERVER_UDP_PORT = int(server_hello.split(" ")[1])
-            assert(SERVER_UDP_PORT >= 0 and SERVER_UDP_PORT <= 65535)
-            SERVER_PARAMETERS = server_hello.split(" ")[2]
-        except (IndexError, ValueError):
-            vprint("Failed to parse server port or parameters.")
-            return False
-    if sorted(SERVER_PARAMETERS) != sorted(CLIENT_PARAMETERS):
-        vprint("Client and server parameters don't match.")
-        return False
-    return True
-
-def get_encryption_keys(server_response):
-    global SERVER_KEYS
-    temp_keys = server_response.rstrip("\r\n").split("\r\n")[1:]
-    assert(temp_keys[NUM_KEYS] == ".")
-    SERVER_KEYS = temp_keys[:-1]
-    assert(len(SERVER_KEYS) == NUM_KEYS)
-    for key in SERVER_KEYS:
-        if not encryption.verify_key(key):
-            vprint("Received bad encryption key: {}".format(key))
-            return False
     return True
 
 def encrypt_msg(msg):
@@ -205,8 +148,12 @@ def request_UDP_resend(sock, reason):
     send_UDP_packets(sock, packets)
 
 def main():
-    global ENCODING, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
-    if not parse_args():
+    global ENCODING, SERVER_IP, TCP_PORT, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
+    SERVER_IP, TCP_PORT = parsing.parse_ip_and_port()
+    if SERVER_IP == "" or TCP_PORT == -1:
+        return
+    if not set_config(parsing.parse_options()):
+        print("Failed to configure settings.")
         return
     ENCODING = sys.getdefaultencoding()
     if PROXY_MODE:
@@ -218,24 +165,14 @@ def main():
         ENCODING = "latin-1"
     vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    #Bind UDP port
-    while True:
-        try:
-            UDP_sock.bind(("", CLIENT_UDP_PORT))
-            vprint("(UDP) Bound UDP socket on port {}".format(CLIENT_UDP_PORT))
-            break
-        except socket.error:
-            CLIENT_UDP_PORT += 1
-            if CLIENT_UDP_PORT > 10100:
-                print("(UDP) Ran out of possible UDP sockets to bind, exiting...")
-                return
+    bind_socket(UDP_sock, 10000, 10100)
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if not TCP_handshake(TCP_sock):
-        return
+    TCP_handshake(TCP_sock)
+    TCP_sock.shutdown(socket.SHUT_RDWR)
     #Start UDP
     vprint("(UDP) Starting UDP communication.")
     packets = create_UDP_packets(False, True, "Ekki-ekki-ekki-ekki-PTANG.")
-    vprint("(UDP) Server ip {} port {}".format(SERVER_IP, SERVER_UDP_PORT))
+    vprint("(UDP) Server: {}".format((SERVER_IP, SERVER_UDP_PORT)))
     send_UDP_packets(UDP_sock, packets)
     vprint("(UDP) Sent initial message.\n")
     recvbuf = []
