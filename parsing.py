@@ -24,7 +24,7 @@ def get_port(message):
     return port
 
 def get_parameters(message):
-    split = message.split(" ")
+    split = message.split("\r\n")[0].split(" ")
     try:
         params = "".join(split[2].rstrip("\r\n"))
     except IndexError:
