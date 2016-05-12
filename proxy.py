@@ -6,6 +6,7 @@ from socket_functions import bind_socket, recv_all, is_EOM
 
 VERBOSE_MODE = False
 ENCODING = sys.getdefaultencoding()
+RECV_WAIT_TIME = 10
 
 PROXY_TCP_PORT = -1
 PROXY_UDP_PORT = -1
@@ -77,7 +78,11 @@ def forward_UDP_packets(sock):
     print("(UDP) Starting UDP packet forwarding.")
     while not EOM:
         vprint("(UDP) Waiting to receive...")
-        recv_data, conn_info = sock.recvfrom(128)
+        try:
+            recv_data, conn_info = sock.recvfrom(128)
+        except socket.timeout:
+            print("(UDP) No traffic for 10 seconds, closing connection.")
+            return
         packet_length = len(recv_data)
         if is_EOM(recv_data[0]):
             print("(UDP) Received EOM.")
@@ -101,6 +106,7 @@ def start():
     print("(TCP) Server is: {}".format((SERVER_IP, SERVER_TCP_PORT)))
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    UDP_sock.settimeout(RECV_WAIT_TIME)
     PROXY_TCP_PORT = bind_socket(TCP_sock)
     PROXY_UDP_PORT = bind_socket(UDP_sock)
     assert(PROXY_TCP_PORT != -1 and PROXY_UDP_PORT != -1)

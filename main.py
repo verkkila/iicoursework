@@ -13,6 +13,7 @@ VERBOSE_MODE = False
 PROXY_MODE = False
 ENCODING = sys.getdefaultencoding()
 UDP_PACKET_FORMAT = "!??HH64s"
+RECV_WAIT_TIME = 10
 
 SERVER_IP = ""
 TCP_PORT = -1
@@ -54,7 +55,7 @@ def set_config():
             CLIENT_PARAMETERS += "C"
             vprint("Using encryption")
         else:
-            result = raw_input("Encryption is not supported in Python2. Continue in plaintext? (y/n):")
+            result = raw_input("Encryption is only supported in Python3. Continue in plaintext? (y/n):")
             if "n" in result:
                 print("Exiting...")
                 return False
@@ -163,6 +164,7 @@ def main():
         ENCODING = "latin-1"
     vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    UDP_sock.settimeout(RECV_WAIT_TIME)
     CLIENT_UDP_PORT = bind_socket(UDP_sock, 10000, 10100)
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     TCP_handshake(TCP_sock)
@@ -176,7 +178,11 @@ def main():
     recvbuf = []
     while True:
         vprint("(UDP) Waiting to receive...")
-        recv_data, conn_info = UDP_sock.recvfrom(128)
+        try:
+            recv_data, conn_info = UDP_sock.recvfrom(128)
+        except socket.timeout:
+            print("(UDP) No data received for 10 seconds, shutting down.")
+            break
         #Check ip and port
         if conn_info[0] != SERVER_IP or conn_info[1] != SERVER_UDP_PORT:
             request_UDP_resend(UDP_sock, "Server address and/or port mismatch.")
