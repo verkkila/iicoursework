@@ -1,19 +1,30 @@
 import socket
 import sys
 
-BUF_SIZE = 128
 ENCODING = sys.getdefaultencoding()
 
 def recv_all(conn):
-    header = conn.recv(32, socket.MSG_PEEK).decode(ENCODING)
+    try:
+        header = conn.recv(32, socket.MSG_PEEK).decode(ENCODING)
+    except UnicodeDecodeError:
+        print("(TCP) Bad header received: {}".format(header))
+        return ""
+    except socket.timeout:
+        print("(TCP) Connection was established, but no data received.")
+        return ""
     helo = header.split("\r\n")[0]
     end_marker = "\r\n"
     if "C" in helo:
         end_marker = "."
     recv_buf = []
     while True:
-        recv_data = conn.recv(BUF_SIZE).decode(ENCODING)
-        recv_buf.append(recv_data)
+        try:
+            recv_data = conn.recv(512).decode(ENCODING)
+        except socket.timeout:
+            print("(TCP) Did not receive correct end marker, returning possible HELO: {}".format(helo))
+            return helo
+        if recv_data:
+            recv_buf.append(recv_data)
         if end_marker in recv_data:
             break
     return "".join(recv_buf)

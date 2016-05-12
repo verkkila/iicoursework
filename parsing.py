@@ -37,12 +37,16 @@ def get_encryption_keys(message, key_count=20):
         keys_final = temp_keys[:-1]
         for key in keys_final:
             assert(verify_key(key))
-    except AssertionError:
+    except (IndexError, AssertionError):
         print("Failed to get encryption keys from: {}".format(message))
         keys_final = []
     return keys_final
 
 def replace_port(message, port):
     split = message.split(" ")
-    split[1] = str(port)
+    try:
+        split[1] = str(port)
+    except IndexError:
+        print("Could not replace port in: {}".format(message))
+        return ""
     return " ".join(split)

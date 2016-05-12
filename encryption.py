@@ -9,18 +9,12 @@ def generate_key_64():
 
 def encrypt(message, key):
     encrypted_list = []
-    if not len(message) == len(key):
-        #print("Warning! Message length ({}) does not match key length ({}).".format(len(message), len(key)))
-        pass
     for i in range(0, len(message)):
         encrypted_list.append(chr(ord(message[i]) + ord(key[i])))
     return "".join(encrypted_list)
 
 def decrypt(message, key):
     decrypted_list = []
-    if not len(message) == len(key):
-        #print("Warning! Message length ({}) does not match key length ({}).".format(len(message), len(key)))
-        pass
     for i in range(0, len(message)):
         try:
             decrypted_list.append(chr(ord(message[i]) - ord(key[i])))

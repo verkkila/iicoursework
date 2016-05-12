@@ -33,13 +33,6 @@ def set_config():
         VERBOSE_MODE = True
     return True
 
-def init(verbose, encoding, server_ip, tcp_port):
-    global VERBOSE_MODE, ENCODING, SERVER_IP, SERVER_TCP_PORT
-    VERBOSE_MODE = verbose
-    SERVER_IP = server_ip
-    SERVER_TCP_PORT = tcp_port
-    ENCODING = encoding
-
 def vprint(msg):
     if VERBOSE_MODE:
         print(msg)
@@ -49,19 +42,27 @@ def vprint(msg):
 def handle_TCP_handshake(conn):
     global CLIENT_UDP_PORT, SERVER_UDP_PORT
     recv_client = recv_all(conn)
+    if recv_client == "":
+        print("(TCP) No data received from the client for {} seconds.".format(RECV_WAIT_TIME))
+        return False
     client_helo = recv_client.split("\r\n")[0]
     vprint("(TCP) 1. HELO Client --> Proxy: {}".format(client_helo))
     CLIENT_UDP_PORT = parsing.get_port(recv_client)
     if CLIENT_UDP_PORT == -1:
         return False
-    cl_TCP_msg_MOD = parsing.replace_port(recv_client, PROXY_UDP_PORT).encode(ENCODING)      
-    cl_HELO_MOD = cl_TCP_msg_MOD.decode(ENCODING).split("\r\n")[0]
+    modified_client_message = parsing.replace_port(recv_client, PROXY_UDP_PORT).encode(ENCODING)      
+    if modified_client_message == "":
+        return False
+    modified_client_helo = modified_client_message.decode(ENCODING).split("\r\n")[0]
     #BEGIN server
     server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_conn.connect((SERVER_IP, SERVER_TCP_PORT))
-    vprint("(TCP) 2. HELO Proxy --> Server: {}".format(cl_HELO_MOD))
-    server_conn.sendall(cl_TCP_msg_MOD)
+    vprint("(TCP) 2. HELO Proxy --> Server: {}".format(modified_client_helo))
+    server_conn.sendall(modified_client_message)
     recv_server = recv_all(server_conn)
+    if recv_server == "":
+        print("(TCP) No data received from the server for {} seconds.".format(RECV_WAIT_TIME))
+        return False
     server_helo = recv_server.split("\r\n")[0]
     vprint("(TCP) 3. HELO Server --> Proxy: {}".format(server_helo))
     SERVER_UDP_PORT = parsing.get_port(recv_server)
@@ -69,10 +70,12 @@ def handle_TCP_handshake(conn):
     if SERVER_UDP_PORT == -1:
         return False
     #END server
-    sv_TCP_msg_MOD = parsing.replace_port(recv_server, PROXY_UDP_PORT).encode(ENCODING)
-    sv_HELO_MOD = sv_TCP_msg_MOD.decode(ENCODING).split("\r\n")[0]
-    vprint("(TCP) 4. HELO Proxy --> Client: {}".format(sv_HELO_MOD))
-    conn.sendall(sv_TCP_msg_MOD)
+    modified_server_message = parsing.replace_port(recv_server, PROXY_UDP_PORT).encode(ENCODING)
+    if modified_server_message == "":
+        return False
+    modified_server_helo = modified_server_message.decode(ENCODING).split("\r\n")[0]
+    vprint("(TCP) 4. HELO Proxy --> Client: {}".format(modified_server_helo))
+    conn.sendall(modified_server_message)
     return True
         
 def forward_UDP_packets(sock):
@@ -102,9 +105,6 @@ def forward_UDP_packets(sock):
 
 def start():
     global CLIENT_IP, SERVER_IP, SERVER_TCP_PORT, PROXY_TCP_PORT, PROXY_UDP_PORT
-    if not set_config():
-        return
-
     SERVER_IP, SERVER_TCP_PORT = parsing.get_ip_and_port()
     if SERVER_IP == "" or SERVER_TCP_PORT == -1:
         print("Exiting...")
@@ -124,6 +124,7 @@ def start():
         TCP_sock.listen(TCP_BACKLOG)
         print("(TCP) Listening for connections.")
         connection, address = TCP_sock.accept()
+        connection.settimeout(RECV_WAIT_TIME)
         print("(TCP) Accepted connection from {}.".format(address))
         CLIENT_IP = address[0]
         if handle_TCP_handshake(connection):
@@ -136,7 +137,8 @@ def start():
     UDP_sock.close()
 
 if __name__ == "__main__":
-    try:
-        start()
-    except KeyboardInterrupt:
-        print("Exiting...")
+    if set_config():
+        try:
+            start()
+        except KeyboardInterrupt:
+            print("Exiting...")
