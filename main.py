@@ -11,7 +11,7 @@ from questions import answer
 
 VERBOSE_MODE = False
 PROXY_MODE = False
-ENCODING = ""
+ENCODING = sys.getdefaultencoding()
 UDP_PACKET_FORMAT = "!??HH64s"
 
 SERVER_IP = ""
@@ -33,23 +33,23 @@ def print_help():
 -h\t--help\t\tPrints help.\n\
 -v\t--verbose\tPrints additional information.\n\
 -e\t--encrypt\tUse encryption when communicating over UDP (Python3).\n\
--p\t--proxy\tStarts the program in proxy mode.")
+-p\t--proxy\t\tStarts the program in proxy mode.")
 
-def set_config(argstring):
+def set_config():
     global VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
-    if "H" in argstring:
+    if "-h" in sys.argv:
         print_help()
         return False
 
-    if "V" in argstring:
+    if "-v" in sys.argv:
         VERBOSE_MODE = True
         vprint("Verbose mode enabled.")
 
-    if "P" in argstring:
+    if "-p" in sys.argv:
         PROXY_MODE = True
         return True
 
-    if "E" in argstring:
+    if "-e" in sys.argv:
         if sys.version_info[0] == 3:
             CLIENT_PARAMETERS += "C"
             vprint("Using encryption")
@@ -149,13 +149,11 @@ def request_UDP_resend(sock, reason):
 
 def main():
     global ENCODING, SERVER_IP, TCP_PORT, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
-    SERVER_IP, TCP_PORT = parsing.parse_ip_and_port()
+    if not set_config():
+        return
+    SERVER_IP, TCP_PORT = parsing.get_ip_and_port()
     if SERVER_IP == "" or TCP_PORT == -1:
         return
-    if not set_config(parsing.parse_options()):
-        print("Failed to configure settings.")
-        return
-    ENCODING = sys.getdefaultencoding()
     if PROXY_MODE:
         proxy.init(VERBOSE_MODE, ENCODING, SERVER_IP, TCP_PORT)
         proxy.start()

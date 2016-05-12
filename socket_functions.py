@@ -1,6 +1,8 @@
 import socket
+import sys
+
 BUF_SIZE = 128
-ENCODING = "utf-8"
+ENCODING = sys.getdefaultencoding()
 
 def recv_all(conn):
     header = conn.recv(32, socket.MSG_PEEK).decode(ENCODING)
@@ -31,5 +33,11 @@ def bind_socket(sock, current_port=10000, last_port=10099):
             current_port += 1
             if current_port > last_port:
                 print("Failed to bind {} socket".format(socktype))
+                return -1
 
-
+def is_EOM(char):
+    major_version = sys.version_info[0]
+    if major_version == 3:
+        return char
+    else:
+        return ord(char)

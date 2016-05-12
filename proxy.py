@@ -2,10 +2,10 @@
 import socket
 import sys
 import parsing
-from socket_functions import bind_socket, recv_all
+from socket_functions import bind_socket, recv_all, is_EOM
 
 VERBOSE_MODE = False
-ENCODING = "utf-8"
+ENCODING = sys.getdefaultencoding()
 
 PROXY_TCP_PORT = -1
 PROXY_UDP_PORT = -1
@@ -22,12 +22,12 @@ def print_help():
 -h\t--help\tPrint help.\n\
 -v\t--verbose\tPrints additional information.\n")
 
-def set_config(argstring):
+def set_config():
     global VERBOSE_MODE
-    if "H" in argstring:
+    if "-h" in sys.argv:
         print_help()
         return False
-    if "V" in argstring:
+    if "-v" in sys.argv:
         VERBOSE_MODE = True
     return True
 
@@ -43,12 +43,6 @@ def vprint(msg):
         print(msg)
     else:
         pass
-
-def check_version():
-    major = sys.version_info[0]
-    if major < 3:
-        print("Python2 is not supported")
-        sys.exit()
 
 def handle_TCP_connection(conn, addr):
     global CLIENT_IP, CLIENT_UDP_PORT, SERVER_UDP_PORT
@@ -84,9 +78,8 @@ def forward_UDP_packets(sock):
     while not EOM:
         vprint("(UDP) Waiting to receive...")
         recv_data, conn_info = sock.recvfrom(128)
-        print(recv_data)
         packet_length = len(recv_data)
-        if recv_data[0] != 0:
+        if is_EOM(recv_data[0]):
             print("(UDP) Received EOM.")
             EOM = True
         if conn_info[0] == CLIENT_IP:
@@ -102,10 +95,9 @@ def forward_UDP_packets(sock):
 
 def start():
     global SERVER_IP, SERVER_TCP_PORT, PROXY_TCP_PORT, PROXY_UDP_PORT
-    check_version()
-    SERVER_IP, SERVER_TCP_PORT = parsing.parse_ip_and_port()
-    if not set_config(parsing.parse_options()):
+    if not set_config():
         return
+    SERVER_IP, SERVER_TCP_PORT = parsing.get_ip_and_port()
     print("(TCP) Server is: {}".format((SERVER_IP, SERVER_TCP_PORT)))
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
