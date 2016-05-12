@@ -6,7 +6,7 @@ import struct
 import parsing
 import encryption
 import proxy
-from socket_functions import bind_socket
+from socket_functions import bind_socket, recv_all
 from questions import answer
 
 VERBOSE_MODE = False
@@ -16,7 +16,7 @@ UDP_PACKET_FORMAT = "!??HH64s"
 RECV_WAIT_TIME = 10
 
 SERVER_IP = ""
-TCP_PORT = -1
+SERVER_TCP_PORT = -1
 CLIENT_UDP_PORT = 10000
 SERVER_UDP_PORT = -1
 
@@ -38,7 +38,7 @@ def print_help():
 
 def set_config():
     global VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
-    if "-h" in sys.argv:
+    if "-h" in sys.argv or len(sys.argv) == 1:
         print_help()
         return False
 
@@ -84,8 +84,8 @@ def generate_encryption_keys(count=20):
 
 def TCP_handshake(sock):
     global SERVER_UDP_PORT, SERVER_PARAMETERS, SERVER_KEYS
-    vprint("(TCP) Attempting to connect to: {} port: {}".format(SERVER_IP, TCP_PORT))
-    sock.connect((SERVER_IP, TCP_PORT))
+    vprint("(TCP) Attempting to connect to: {} port: {}".format(SERVER_IP, SERVER_TCP_PORT))
+    sock.connect((SERVER_IP, SERVER_TCP_PORT))
     #Construct HELO message
     hello_msg = " ".join(["HELO", str(CLIENT_UDP_PORT), CLIENT_PARAMETERS])
     if use_encryption():
@@ -95,13 +95,7 @@ def TCP_handshake(sock):
     vprint("(TCP) Sending initial message.")
     sock.sendall(full_msg)
     #Receive response from server
-    recvbuf = []
-    while True:
-        recv_data = sock.recv(128).decode(ENCODING)
-        if recv_data == "":
-            break
-        recvbuf.append(recv_data)
-    server_response = "".join(recvbuf)
+    server_response = recv_all(sock)
     vprint("(TCP) Received {} bytes from the server.".format(len(server_response)))
     SERVER_UDP_PORT = parsing.get_port(server_response)
     SERVER_PARAMETERS = parsing.get_parameters(server_response)
@@ -149,20 +143,20 @@ def request_UDP_resend(sock, reason):
     send_UDP_packets(sock, packets)
 
 def main():
-    global ENCODING, SERVER_IP, TCP_PORT, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
+    global ENCODING, SERVER_IP, SERVER_TCP_PORT, CLIENT_UDP_PORT, SERVER_KEY_COUNTER, NUM_KEYS
     if not set_config():
         return
-    SERVER_IP, TCP_PORT = parsing.get_ip_and_port()
-    if SERVER_IP == "" or TCP_PORT == -1:
+    SERVER_IP, SERVER_TCP_PORT = parsing.get_ip_and_port()
+    if SERVER_IP == "" or SERVER_TCP_PORT == -1:
         return
     if PROXY_MODE:
-        proxy.init(VERBOSE_MODE, ENCODING, SERVER_IP, TCP_PORT)
+        proxy.init(VERBOSE_MODE, ENCODING, SERVER_IP, SERVER_TCP_PORT)
         proxy.start()
         return
     if use_encryption():
         generate_encryption_keys()
         ENCODING = "latin-1"
-    vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, TCP_PORT))
+    vprint("Server IP address: {} TCP port: {}".format(SERVER_IP, SERVER_TCP_PORT))
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     UDP_sock.settimeout(RECV_WAIT_TIME)
     CLIENT_UDP_PORT = bind_socket(UDP_sock, 10000, 10100)
