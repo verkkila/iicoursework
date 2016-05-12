@@ -122,4 +122,7 @@ def start():
     UDP_sock.close()
 
 if __name__ == "__main__":
-    start()
+    try:
+        start()
+    except KeyboardInterrupt:
+        print("Exiting...")
