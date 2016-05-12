@@ -20,9 +20,9 @@ def recv_all(conn):
 
 def bind_socket(sock, current_port=10000, last_port=10099):
     socktype = "socktype"
-    if sock.type == 1:
+    if sock.type == socket.SOCK_STREAM:
         socktype = "TCP"
-    elif sock.type == 2:
+    elif sock.type == socket.SOCK_DGRAM:
         socktype = "UDP"
     while True:
         try:
