@@ -13,10 +13,11 @@ VERBOSE_MODE = False
 PROXY_MODE = False
 ENCODING = sys.getdefaultencoding()
 UDP_PACKET_FORMAT = "!??HH64s"
-RECV_WAIT_TIME = 10
+RECV_WAIT_TIME = 5 #seconds
 
 SERVER_IP = ""
 SERVER_TCP_PORT = -1
+
 CLIENT_UDP_PORT = 10000
 SERVER_UDP_PORT = -1
 
@@ -38,19 +39,19 @@ def print_help():
 
 def set_config():
     global VERBOSE_MODE, PROXY_MODE, CLIENT_PARAMETERS
-    if "-h" in sys.argv or len(sys.argv) == 1:
+    if "-h" in sys.argv or "--help" in sys.argv or len(sys.argv) == 1:
         print_help()
         return False
 
-    if "-v" in sys.argv:
+    if "-v" in sys.argv or "--verbose" in sys.argv:
         VERBOSE_MODE = True
         vprint("Verbose mode enabled.")
 
-    if "-p" in sys.argv:
+    if "-p" in sys.argv or "--proxy" in sys.argv:
         PROXY_MODE = True
         return True
 
-    if "-e" in sys.argv:
+    if "-e" in sys.argv or "--encrypt" in sys.argv:
         if sys.version_info[0] == 3:
             CLIENT_PARAMETERS += "C"
             vprint("Using encryption")
@@ -101,10 +102,8 @@ def TCP_handshake(sock):
     SERVER_PARAMETERS = parsing.get_parameters(server_response)
     if use_encryption():
         SERVER_KEYS = parsing.get_encryption_keys(server_response)
-        for key in SERVER_KEYS:
-            if not encryption.verify_key(key):
-                print("Received bad encryption key: {}".format(key))
-                return False
+        if SERVER_KEYS == []:
+            return False
     vprint("(TCP) Received:\n\tUDP port: {}\n\tParameters: {} (expected {})\n\tKeys: {} (expected {})".format(SERVER_UDP_PORT, SERVER_PARAMETERS, CLIENT_PARAMETERS, len(SERVER_KEYS), NUM_KEYS))
     return True
 
@@ -161,7 +160,8 @@ def main():
     UDP_sock.settimeout(RECV_WAIT_TIME)
     CLIENT_UDP_PORT = bind_socket(UDP_sock, 10000, 10100)
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    TCP_handshake(TCP_sock)
+    if not TCP_handshake(TCP_sock):
+        return
     TCP_sock.shutdown(socket.SHUT_RDWR)
     #Start UDP
     vprint("(UDP) Starting UDP communication.")
@@ -175,7 +175,7 @@ def main():
         try:
             recv_data, conn_info = UDP_sock.recvfrom(128)
         except socket.timeout:
-            print("(UDP) No data received for 10 seconds, shutting down.")
+            print("(UDP) No data received for {} seconds, shutting down.".format(RECV_WAIT_TIME))
             break
         #Check ip and port
         if conn_info[0] != SERVER_IP or conn_info[1] != SERVER_UDP_PORT:

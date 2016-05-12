@@ -19,6 +19,7 @@ def recv_all(conn):
     return "".join(recv_buf)
 
 def bind_socket(sock, current_port=10000, last_port=10099):
+    first_port = current_port
     if sock.type == socket.SOCK_STREAM:
         socktype = "TCP"
     else:
@@ -31,7 +32,7 @@ def bind_socket(sock, current_port=10000, last_port=10099):
         except socket.error:
             current_port += 1
             if current_port > last_port:
-                print("Failed to bind {} socket".format(socktype))
+                print("Failed to bind {} socket in range {}-{}".format(socktype, first_port, last_port))
                 return -1
 
 def is_EOM(char):

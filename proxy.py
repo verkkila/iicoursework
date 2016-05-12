@@ -6,7 +6,8 @@ from socket_functions import bind_socket, recv_all, is_EOM
 
 VERBOSE_MODE = False
 ENCODING = sys.getdefaultencoding()
-RECV_WAIT_TIME = 10
+RECV_WAIT_TIME = 5 #seconds
+TCP_BACKLOG = 5 #connections
 
 PROXY_TCP_PORT = -1
 PROXY_UDP_PORT = -1
@@ -25,10 +26,10 @@ def print_help():
 
 def set_config():
     global VERBOSE_MODE
-    if "-h" in sys.argv:
+    if "-h" in sys.argv or "--help" in sys.argv:
         print_help()
         return False
-    if "-v" in sys.argv:
+    if "-v" in sys.argv or "--verbose" in sys.argv:
         VERBOSE_MODE = True
     return True
 
@@ -45,15 +46,14 @@ def vprint(msg):
     else:
         pass
 
-def handle_TCP_connection(conn, addr):
-    global CLIENT_IP, CLIENT_UDP_PORT, SERVER_UDP_PORT
-    CLIENT_IP = addr[0]
-    print("(TCP) Received connection from: {}".format(addr))
+def handle_TCP_handshake(conn):
+    global CLIENT_UDP_PORT, SERVER_UDP_PORT
     recv_client = recv_all(conn)
     client_helo = recv_client.split("\r\n")[0]
     vprint("(TCP) 1. HELO Client --> Proxy: {}".format(client_helo))
     CLIENT_UDP_PORT = parsing.get_port(recv_client)
-    assert(CLIENT_UDP_PORT != -1)
+    if CLIENT_UDP_PORT == -1:
+        return False
     cl_TCP_msg_MOD = parsing.replace_port(recv_client, PROXY_UDP_PORT).encode(ENCODING)      
     cl_HELO_MOD = cl_TCP_msg_MOD.decode(ENCODING).split("\r\n")[0]
     #BEGIN server
@@ -66,12 +66,14 @@ def handle_TCP_connection(conn, addr):
     vprint("(TCP) 3. HELO Server --> Proxy: {}".format(server_helo))
     SERVER_UDP_PORT = parsing.get_port(recv_server)
     server_conn.close()
+    if SERVER_UDP_PORT == -1:
+        return False
     #END server
-    assert(SERVER_UDP_PORT != -1)
     sv_TCP_msg_MOD = parsing.replace_port(recv_server, PROXY_UDP_PORT).encode(ENCODING)
     sv_HELO_MOD = sv_TCP_msg_MOD.decode(ENCODING).split("\r\n")[0]
     vprint("(TCP) 4. HELO Proxy --> Client: {}".format(sv_HELO_MOD))
     conn.sendall(sv_TCP_msg_MOD)
+    return True
         
 def forward_UDP_packets(sock):
     EOM = False
@@ -81,7 +83,7 @@ def forward_UDP_packets(sock):
         try:
             recv_data, conn_info = sock.recvfrom(128)
         except socket.timeout:
-            print("(UDP) No traffic for 10 seconds, closing connection.")
+            print("(UDP) No traffic for {} seconds, closing connection.".format(RECV_WAIT_TIME))
             return
         packet_length = len(recv_data)
         if is_EOM(recv_data[0]):
@@ -99,24 +101,36 @@ def forward_UDP_packets(sock):
             vprint("(UDP) Received {} bytes from unknown: {}".format(packet_length, conn_info[0]))
 
 def start():
-    global SERVER_IP, SERVER_TCP_PORT, PROXY_TCP_PORT, PROXY_UDP_PORT
+    global CLIENT_IP, SERVER_IP, SERVER_TCP_PORT, PROXY_TCP_PORT, PROXY_UDP_PORT
     if not set_config():
         return
+
     SERVER_IP, SERVER_TCP_PORT = parsing.get_ip_and_port()
+    if SERVER_IP == "" or SERVER_TCP_PORT == -1:
+        print("Exiting...")
+        return
     print("(TCP) Server is: {}".format((SERVER_IP, SERVER_TCP_PORT)))
+
     TCP_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     UDP_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     UDP_sock.settimeout(RECV_WAIT_TIME)
     PROXY_TCP_PORT = bind_socket(TCP_sock)
     PROXY_UDP_PORT = bind_socket(UDP_sock)
-    assert(PROXY_TCP_PORT != -1 and PROXY_UDP_PORT != -1)
+    if PROXY_TCP_PORT == -1 or PROXY_UDP_PORT == -1:
+        print("Exiting...")
+        return
+
     while True:
-        TCP_sock.listen(5)
+        TCP_sock.listen(TCP_BACKLOG)
         print("(TCP) Listening for connections.")
         connection, address = TCP_sock.accept()
-        handle_TCP_connection(connection, address)
+        print("(TCP) Accepted connection from {}.".format(address))
+        CLIENT_IP = address[0]
+        if handle_TCP_handshake(connection):
+            forward_UDP_packets(UDP_sock)
+        else:
+            print("(TCP) Handshake failed, closing connection.")
         connection.shutdown(socket.SHUT_RDWR)
-        forward_UDP_packets(UDP_sock)
         connection.close()
     TCP_sock.close()
     UDP_sock.close()
