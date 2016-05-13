@@ -1,5 +1,4 @@
-# iicoursework
-For best results use Python3 (Python2 does not support encryption).
+For best results use Python3 (encryption is not supported in Python2)
 Usage:
         client.py [server_address] [server_tcp_port] [options]
         proxy.py [server_address] [server_tcp_port] [options]
